@@ -4,7 +4,7 @@ import ResultsView from './components/ResultsView'
 import HeatmapView from './components/HeatmapView'
 import NavigationDock from './components/NavigationDock'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function App() {
   // 'hero' | 'results' | 'heatmap'
@@ -24,7 +24,7 @@ export default function App() {
   return (
     <div className="min-h-screen">
       {view === 'hero' && (
-        <HeroView apiBase={API_BASE} onReport={handleReport} />
+        <HeroView apiBase={API_BASE} onReport={handleReport} onViewHeatmap={() => setView('heatmap')} />
       )}
       {view === 'results' && (
         <ResultsView data={result} onReset={resetToHero} />

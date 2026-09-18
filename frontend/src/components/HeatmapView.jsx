@@ -16,8 +16,8 @@ function HeatLayer({ points }) {
     const data = points.map(([lat, lng, sev]) => [lat, lng, Math.min(1.0, (sev / 10) * 1.5)])
     
     const layer = L.heatLayer(data, {
-      radius:  30,
-      blur:    20,
+      radius:  25,
+      blur:    15,
       maxZoom: 17,
       max:     1.0,
       gradient: { 0.2: '#10b981', 0.5: '#f59e0b', 0.8: '#ef4444', 1.0: '#7f1d1d' },
@@ -77,15 +77,20 @@ export default function HeatmapView({ apiBase, onBack }) {
         <MapContainer
           center={[33.6844, 73.0479]}
           zoom={13}
+          minZoom={12}
+          maxBounds={[
+            [33.5000, 72.9000],
+            [33.8500, 73.3000]
+          ]}
+          maxBoundsViscosity={1.0}
           zoomControl={false}
           className="absolute inset-0 w-full h-full"
         >
-          {/* Live Google Maps Hybrid (Satellite + Labels) */}
+          {/* Standard OpenStreetMap Tiles */}
           <TileLayer
-            url="http://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-            maxZoom={20}
-            subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
-            attribution="&copy; Google Maps"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maxZoom={19}
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
           />
           {filteredPoints.length > 0 && <HeatLayer points={filteredPoints} />}
         </MapContainer>

@@ -199,7 +199,7 @@ export default function ResultsView({ data, onReset }) {
       {/* Action Confirmation Pill */}
       <div className="mt-auto space-y-2.5 slide-up delay-3">
         <a 
-          href={`mailto:complaint@cda.gov.pk?subject=ShehriAI Report: ${data.detection}&body=Report ID: ${data.report_id}%0ASeverity: ${score}/10${note ? `%0AUser Note: ${encodeURIComponent(note)}` : ''}`}
+          href={`mailto:cdacares@cda.gov.pk?subject=ShehriAI Report: ${data.detection}&body=Report ID: ${data.report_id}%0ASeverity: ${score}/10${note ? `%0AUser Note: ${encodeURIComponent(note)}` : ''}`}
           className="w-full py-4 px-6 rounded-full hover:bg-emerald-900 active:scale-[0.98] text-white font-medium text-sm shadow-pill transition-all duration-200 flex items-center justify-center space-x-2 bg-slate-900"
         >
           <Check className="w-4 h-4" />

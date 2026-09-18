@@ -27,16 +27,10 @@ logger = logging.getLogger("shehri_ai")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_DIR         = os.path.dirname(os.path.abspath(__file__))
-CREDENTIALS_PATH = os.path.join(BASE_DIR, "config", "firebase_credentials.json")
-MODEL_PATH       = os.path.join(BASE_DIR, "assets", "weights", "best.pt")
-
-# ---------------------------------------------------------------------------
-# Class name mapping  (extend as your model grows)
-# ---------------------------------------------------------------------------
-CLASS_NAME_MAP: dict[str, str] = {
-    "0": "Pothole",
-}
+BASE_DIR           = os.path.dirname(os.path.abspath(__file__))
+CREDENTIALS_PATH   = os.path.join(BASE_DIR, "config", "firebase_credentials.json")
+POTHOLE_MODEL_PATH = os.path.join(BASE_DIR, "models", "pothole_best.pt")
+GARBAGE_MODEL_PATH = os.path.join(BASE_DIR, "models", "garbage_best.pt")
 
 # ---------------------------------------------------------------------------
 # Firebase Initialization
@@ -52,22 +46,30 @@ except Exception as exc:
     db = None
 
 # ---------------------------------------------------------------------------
-# YOLO Model Initialization
+# YOLO Models Initialization
 # ---------------------------------------------------------------------------
 try:
-    model = YOLO(MODEL_PATH)
-    logger.info("YOLO model loaded from: %s", MODEL_PATH)
+    pothole_model = YOLO(POTHOLE_MODEL_PATH)
+    logger.info("Pothole YOLO model loaded from: %s", POTHOLE_MODEL_PATH)
 except Exception as exc:
-    logger.critical("Failed to load YOLO model: %s", exc)
-    model = None
+    logger.critical("Failed to load Pothole YOLO model: %s", exc)
+    pothole_model = None
+
+try:
+    garbage_model = YOLO(GARBAGE_MODEL_PATH)
+    logger.info("Garbage YOLO model loaded from: %s", GARBAGE_MODEL_PATH)
+except Exception as exc:
+    logger.critical("Failed to load Garbage YOLO model: %s", exc)
+    garbage_model = None
+
 
 # ---------------------------------------------------------------------------
 # FastAPI App + CORS
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="ShehriAI Backend",
-    description="AI-powered civic infrastructure reporting API.",
-    version="3.0.0",
+    description="Dual-Model AI-powered civic infrastructure reporting API.",
+    version="4.0.0",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -81,10 +83,6 @@ app.add_middleware(
 # EXIF Helpers
 # ---------------------------------------------------------------------------
 def _dms_to_decimal(dms_values, ref: str) -> float:
-    """
-    Convert EXIF DMS (Degrees, Minutes, Seconds) to a decimal float.
-    Each DMS element can be an IFDRational or a (numerator, denominator) tuple.
-    """
     def to_float(v) -> float:
         try:
             return float(v)
@@ -101,11 +99,6 @@ def _dms_to_decimal(dms_values, ref: str) -> float:
 
 
 def extract_exif(image_bytes: bytes) -> dict:
-    """
-    Extract DateTimeOriginal and GPS coordinates from EXIF data using Pillow.
-    Returns: {"exif_time": datetime | None, "exif_location": dict | None}
-    Handles missing/stripped EXIF gracefully — never raises.
-    """
     result = {"exif_time": None, "exif_location": None}
     try:
         pil_img  = Image.open(io.BytesIO(image_bytes))
@@ -115,7 +108,6 @@ def extract_exif(image_bytes: bytes) -> dict:
 
         exif = {ExifTags.TAGS.get(k, k): v for k, v in raw_exif.items()}
 
-        # Timestamp
         dt_str = exif.get("DateTimeOriginal")
         if dt_str:
             try:
@@ -125,7 +117,6 @@ def extract_exif(image_bytes: bytes) -> dict:
             except ValueError:
                 pass
 
-        # GPS
         gps_raw = exif.get("GPSInfo")
         if gps_raw:
             gps     = {ExifTags.GPSTAGS.get(k, k): v for k, v in gps_raw.items()}
@@ -147,7 +138,6 @@ def extract_exif(image_bytes: bytes) -> dict:
 # Image / CV Helpers
 # ---------------------------------------------------------------------------
 def decode_image_bytes(raw_bytes: bytes) -> np.ndarray:
-    """Decode raw bytes into a BGR NumPy array via OpenCV."""
     arr = np.asarray(bytearray(raw_bytes), dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
@@ -155,25 +145,17 @@ def decode_image_bytes(raw_bytes: bytes) -> np.ndarray:
     return img
 
 
-def resolve_class_name(raw_name: str) -> str:
-    """Apply class name mapping; return raw_name if no override exists."""
-    return CLASS_NAME_MAP.get(str(raw_name), raw_name)
-
-
 def annotate_and_encode(
     img: np.ndarray,
     x1: int, y1: int, x2: int, y2: int,
     label: str,
     confidence: float,
+    color: tuple = (0, 0, 255)
 ) -> str:
-    """
-    Draw a red bounding box + label on *img*.
-    Returns a Base64-encoded JPEG data URI.
-    """
     out = img.copy()
 
-    # Red bounding box
-    cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), thickness=3)
+    # Bounding box
+    cv2.rectangle(out, (x1, y1), (x2, y2), color, thickness=3)
 
     # Text
     text = f"{label}: {confidence:.2f}"
@@ -182,7 +164,7 @@ def annotate_and_encode(
     label_y1 = max(y1 - th - baseline - 4, 0)
 
     # Label background
-    cv2.rectangle(out, (x1, label_y1), (x1 + tw + 4, y1 + baseline), (0, 0, 255), -1)
+    cv2.rectangle(out, (x1, label_y1), (x1 + tw + 4, y1 + baseline), color, -1)
     # Label text
     cv2.putText(out, text, (x1 + 2, y1), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
 
@@ -194,14 +176,12 @@ def annotate_and_encode(
 
 
 def calculate_severity(confidence: float) -> int:
-    """Map [0.0, 1.0] confidence to a 1–10 severity integer."""
     return max(1, min(10, round(confidence * 10)))
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
 
 @app.post("/api/v1/submit_report", status_code=200)
 async def submit_report(
@@ -210,56 +190,74 @@ async def submit_report(
     lng:     float     = Form(...),
     file:    UploadFile = File(...),
 ):
-    # Startup guard
-    if model is None or db is None:
+    if pothole_model is None or garbage_model is None or db is None:
         raise HTTPException(status_code=500, detail="Server not fully initialized.")
 
-    # Read bytes
     try:
         raw_bytes = await file.read()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"File read error: {exc}")
 
-    # EXIF (non-fatal)
     exif = extract_exif(raw_bytes)
 
-    # Decode image
     try:
         img = decode_image_bytes(raw_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # YOLO inference
+    # Run Dual Inference
     try:
-        results = model(img, verbose=False)
+        pothole_results = pothole_model(img, verbose=False)
+        garbage_results = garbage_model(img, verbose=False)
     except Exception as exc:
         logger.exception("YOLO inference failed.")
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
 
-    if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+    best_pothole_box = None
+    pothole_conf = -1.0
+    if pothole_results and pothole_results[0].boxes is not None and len(pothole_results[0].boxes) > 0:
+        boxes = pothole_results[0].boxes
+        best_pothole_box = boxes[int(boxes.conf.argmax())]
+        pothole_conf = float(best_pothole_box.conf)
+
+    best_garbage_box = None
+    garbage_conf = -1.0
+    if garbage_results and garbage_results[0].boxes is not None and len(garbage_results[0].boxes) > 0:
+        boxes = garbage_results[0].boxes
+        best_garbage_box = boxes[int(boxes.conf.argmax())]
+        garbage_conf = float(best_garbage_box.conf)
+
+    # If neither model found anything
+    if best_pothole_box is None and best_garbage_box is None:
         return {"success": False, "message": "No issues detected in the provided image."}
 
-    # Best detection
-    boxes    = results[0].boxes
-    best_box = boxes[int(boxes.conf.argmax())]
+    # Compare and select the absolute best detection
+    if pothole_conf >= garbage_conf:
+        winning_box = best_pothole_box
+        confidence = pothole_conf
+        raw_name = pothole_model.names[int(winning_box.cls)]
+        detection_class = "Pothole" if raw_name == "0" else raw_name.title()
+        color = (0, 0, 255) # Red for Potholes
+    else:
+        winning_box = best_garbage_box
+        confidence = garbage_conf
+        raw_name = garbage_model.names[int(winning_box.cls)].title()
+        detection_class = "Garbage"
+        color = (0, 200, 0) # Green for Garbage/Waste
 
-    confidence      = float(best_box.conf)
-    detection_class = resolve_class_name(model.names[int(best_box.cls)])
     severity_score  = calculate_severity(confidence)
 
     h, w   = img.shape[:2]
-    xyxy   = best_box.xyxy[0].tolist()
+    xyxy   = winning_box.xyxy[0].tolist()
     x1, y1 = max(0, int(xyxy[0])), max(0, int(xyxy[1]))
     x2, y2 = min(w, int(xyxy[2])), min(h, int(xyxy[3]))
 
-    # Annotate
     try:
-        annotated_uri = annotate_and_encode(img, x1, y1, x2, y2, detection_class, confidence)
+        annotated_uri = annotate_and_encode(img, x1, y1, x2, y2, detection_class, confidence, color)
     except Exception as exc:
         logger.exception("Annotation failed.")
         raise HTTPException(status_code=500, detail=f"Annotation error: {exc}")
 
-    # Firestore
     report_id = str(uuid.uuid4())
     doc = {
         "report_id":       report_id,
@@ -274,9 +272,10 @@ async def submit_report(
         "exif_time":       exif["exif_time"],
         "status":          "Pending",
     }
+    
     try:
         db.collection("shehri_reports").document(report_id).set(doc)
-        logger.info("Report saved. report_id=%s", report_id)
+        logger.info("Report saved. report_id=%s, type=%s", report_id, detection_class)
     except Exception as exc:
         logger.exception("Firestore write failed.")
         raise HTTPException(status_code=500, detail=f"Database error: {exc}")
@@ -298,10 +297,6 @@ async def submit_report(
 
 @app.get("/api/v1/heatmap")
 async def get_heatmap():
-    """
-    Return [[lat, lng, severity_score], ...] for all reports.
-    Prefers exif_location; falls back to upload_location.
-    """
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
     try:
