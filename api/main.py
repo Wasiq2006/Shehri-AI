@@ -228,6 +228,14 @@ def decode_image_bytes(raw_bytes: bytes) -> np.ndarray:
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("cv2.imdecode returned None — unsupported or corrupt image.")
+    
+    # Downscale large images to prevent Out-Of-Memory (OOM) crashes on Render
+    h, w = img.shape[:2]
+    max_dim = 1024
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)))
+        
     return img
 
 
