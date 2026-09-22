@@ -7,7 +7,9 @@ WORKDIR /app
 
 # Copy and install Python dependencies first (layer caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y opencv-python && \
+    pip install --no-cache-dir opencv-python-headless
 
 # Copy application source code
 COPY . .
