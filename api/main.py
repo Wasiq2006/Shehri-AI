@@ -64,23 +64,50 @@ except Exception as exc:
     db = None
 
 import torch
+import gc
 
 # ---------------------------------------------------------------------------
 # YOLO Models Initialization (Lazy Loaded to save memory)
 # ---------------------------------------------------------------------------
 torch.set_num_threads(1)
+torch.set_grad_enabled(False)
+
+def _extract_boxes(results):
+    """Extract PyTorch tensors into pure Python types so the model can be garbage collected."""
+    boxes_data = []
+    if results and len(results) > 0 and results[0].boxes is not None:
+        names = results[0].names
+        for box in results[0].boxes:
+            cls_id = int(box.cls[0])
+            boxes_data.append({
+                "xyxy": box.xyxy[0].tolist(),
+                "conf": float(box.conf[0]),
+                "cls": cls_id,
+                "name": names[cls_id]
+            })
+    return boxes_data
 
 def run_pothole_inference(img):
-    model = YOLO(POTHOLE_MODEL_PATH)
-    results = model(img, verbose=False)
+    with torch.no_grad():
+        model = YOLO(POTHOLE_MODEL_PATH)
+        results = model(img, verbose=False)
+        boxes_data = _extract_boxes(results)
+        
+    del results
     del model
-    return results
+    gc.collect()
+    return boxes_data
 
 def run_garbage_inference(img):
-    model = YOLO(GARBAGE_MODEL_PATH)
-    results = model(img, verbose=False)
+    with torch.no_grad():
+        model = YOLO(GARBAGE_MODEL_PATH)
+        results = model(img, verbose=False)
+        boxes_data = _extract_boxes(results)
+        
+    del results
     del model
-    return results
+    gc.collect()
+    return boxes_data
 
 
 
