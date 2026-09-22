@@ -19,6 +19,45 @@ function getCoords() {
   })
 }
 
+// --- Client-Side Image Compression ---
+function compressImage(file, maxDimension = 1200) {
+  return new Promise((resolve) => {
+    if (!file.type.match(/image.*/)) {
+      return resolve(file) // Fallback if not an image
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width)
+            width = maxDimension
+          } else {
+            width = Math.round((width * maxDimension) / height)
+            height = maxDimension
+          }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        canvas.toBlob((blob) => {
+          // Fallback to original if compression fails or yields larger file
+          if (!blob) resolve(file)
+          else resolve(new File([blob], file.name, { type: 'image/jpeg' }))
+        }, 'image/jpeg', 0.85)
+      }
+      img.onerror = () => resolve(file) // Fallback on error
+      img.src = e.target.result
+    }
+    reader.onerror = () => resolve(file)
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function HeroView({ apiBase, onReport, onViewHeatmap }) {
   const inputRef                 = useRef(null)
   const [loading, setLoading]    = useState(false)
@@ -80,13 +119,17 @@ export default function HeroView({ apiBase, onReport, onViewHeatmap }) {
     setStatus('Fetching GPS…')
     const { lat, lng } = await getCoords()
 
+    // Compress Image
+    setStatus('Compressing image…')
+    const compressedFile = await compressImage(selectedFile)
+
     // Upload
     setStatus('Analyzing infrastructure…')
     const fd = new FormData()
     fd.append('user_id', USER_ID)
     fd.append('lat', lat.toString())
     fd.append('lng', lng.toString())
-    fd.append('file', selectedFile, selectedFile.name)
+    fd.append('file', compressedFile)
 
     try {
       const res = await fetch(`${apiBase}/api/v1/submit_report`, {
