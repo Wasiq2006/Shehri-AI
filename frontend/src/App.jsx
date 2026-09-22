@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import HeroView from './components/HeroView'
 import ResultsView from './components/ResultsView'
 import HeatmapView from './components/HeatmapView'
@@ -36,6 +37,7 @@ export default function App() {
       )}
 
       <NavigationDock active={view} onChange={setView} />
+      <Analytics />
     </div>
   )
 }
