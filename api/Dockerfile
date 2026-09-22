@@ -1,11 +1,7 @@
 FROM python:3.10-slim
 
-# Install system dependencies for OpenCV and computer vision libraries
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install curl to download models
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
