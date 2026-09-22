@@ -6,6 +6,7 @@ firebase_credentials.json
 api/config/*.json
 *.env
 .env*
+!.env.production
 secrets/
 
 # ---------------------------------------------------------------------------
