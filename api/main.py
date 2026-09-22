@@ -313,10 +313,14 @@ async def submit_report(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Run Dual Inference
     try:
-        pothole_results = pothole_model(img, verbose=False)
-        garbage_results = garbage_model(img, verbose=False)
+        # Run inference sequentially to save memory
+        pothole_results = run_pothole_inference(img)
+        garbage_results = run_garbage_inference(img)
+        
+        # Force garbage collection just in case
+        import gc
+        gc.collect()
     except Exception as exc:
         logger.exception("YOLO inference failed.")
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
