@@ -28,5 +28,5 @@ RUN mkdir -p models && \
 # Expose Render's required port
 EXPOSE 10000
 
-# Start the server using Uvicorn on Render's required port
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Start the server using Uvicorn on the cloud provider's required port
+CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"
