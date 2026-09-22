@@ -10,7 +10,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "https://your-backend.onrender.com/api/$1"
+      "dest": "https://shehri-ai-backend.onrender.com/api/$1"
     },
     {
       "src": "/(.*)",
