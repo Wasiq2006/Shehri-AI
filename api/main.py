@@ -2,18 +2,25 @@ import os
 import base64
 import uuid
 import io
+import json
+import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
 from PIL import Image, ExifTags
 import firebase_admin
 from firebase_admin import credentials, firestore
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from ultralytics import YOLO
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -34,10 +41,21 @@ GARBAGE_MODEL_PATH = os.path.join(BASE_DIR, "models", "garbage_best.pt")
 
 # ---------------------------------------------------------------------------
 # Firebase Initialization
+# Supports two modes:
+#   1. Local dev: reads from config/firebase_credentials.json file
+#   2. Render/production: reads from FIREBASE_CREDENTIALS_JSON env var
 # ---------------------------------------------------------------------------
 try:
     if not firebase_admin._apps:
-        cred = credentials.Certificate(CREDENTIALS_PATH)
+        firebase_creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+        if firebase_creds_json:
+            import json
+            cred_dict = json.loads(firebase_creds_json)
+            cred = credentials.Certificate(cred_dict)
+            logger.info("Firebase credentials loaded from environment variable.")
+        else:
+            cred = credentials.Certificate(CREDENTIALS_PATH)
+            logger.info("Firebase credentials loaded from file: %s", CREDENTIALS_PATH)
         firebase_admin.initialize_app(cred)
     db: firestore.Client = firestore.client()
     logger.info("Firebase Admin initialized successfully.")
@@ -64,13 +82,81 @@ except Exception as exc:
 
 
 # ---------------------------------------------------------------------------
+# Auto-Cleanup: Delete reports older than 30 days
+# ---------------------------------------------------------------------------
+REPORT_TTL_DAYS = int(os.environ.get("REPORT_TTL_DAYS", 30))
+
+def cleanup_old_reports(force_all: bool = False) -> int:
+    """Delete Firestore documents older than REPORT_TTL_DAYS, or all if force_all=True. Returns count deleted."""
+    if db is None:
+        logger.warning("Cleanup skipped: database unavailable.")
+        return 0
+
+    deleted = 0
+
+    try:
+        if force_all:
+            docs = db.collection("shehri_reports").stream()
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=REPORT_TTL_DAYS)
+            docs = db.collection("shehri_reports").where(
+                "upload_time", "<", cutoff
+            ).stream()
+
+        for doc in docs:
+            doc.reference.delete()
+            deleted += 1
+
+        if deleted:
+            if force_all:
+                logger.info("Cleanup: FORCE DELETED ALL %d report(s).", deleted)
+            else:
+                logger.info("Cleanup: deleted %d report(s) older than %d days.", deleted, REPORT_TTL_DAYS)
+        else:
+            logger.info("Cleanup: no reports found to delete.")
+    except Exception as exc:
+        logger.error("Cleanup failed: %s", exc)
+
+    return deleted
+
+
+async def _cleanup_loop():
+    """Background loop that runs cleanup once every 24 hours."""
+    while True:
+        await asyncio.sleep(86400)  # 24 hours
+        logger.info("Running scheduled 30-day cleanup...")
+        cleanup_old_reports()
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """FastAPI lifespan: starts the daily cleanup task on boot."""
+    # Run an initial cleanup on startup
+    logger.info("Running startup cleanup (TTL = %d days)...", REPORT_TTL_DAYS)
+    cleanup_old_reports()
+
+    # Start the recurring background loop
+    task = asyncio.create_task(_cleanup_loop())
+    yield
+    task.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_remote_address)
+
+# ---------------------------------------------------------------------------
 # FastAPI App + CORS
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="ShehriAI Backend",
     description="Dual-Model AI-powered civic infrastructure reporting API.",
     version="4.0.0",
+    lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -184,7 +270,9 @@ def calculate_severity(confidence: float) -> int:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/submit_report", status_code=200)
+@limiter.limit("5/minute")
 async def submit_report(
+    request: Request,
     user_id: str       = Form(...),
     lat:     float     = Form(...),
     lng:     float     = Form(...),
@@ -193,10 +281,22 @@ async def submit_report(
     if pothole_model is None or garbage_model is None or db is None:
         raise HTTPException(status_code=500, detail="Server not fully initialized.")
 
+    # Security: File Type Check
+    if file.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only JPEG and PNG are allowed.")
+
+    # Security: File Size Check (10MB max)
+    if getattr(file, 'size', None) and file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
+
     try:
         raw_bytes = await file.read()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"File read error: {exc}")
+
+    # Fallback size check if file.size was None
+    if len(raw_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
 
     exif = extract_exif(raw_bytes)
 
@@ -306,10 +406,16 @@ async def get_heatmap():
 
     points = []
     for doc in docs:
-        d   = doc.to_dict()
-        loc = d.get("exif_location") or d.get("upload_location")
+        d = doc.to_dict()
+        
+        # Scenario: Try EXIF first, if invalid/missing, fallback to POST location
+        loc = d.get("exif_location")
+        if not loc or loc.get("latitude") is None or loc.get("longitude") is None:
+            loc = d.get("upload_location")
+            
         if not loc:
             continue
+            
         lat_ = loc.get("latitude")
         lng_ = loc.get("longitude")
         sev  = d.get("severity_score", 1)
@@ -318,3 +424,12 @@ async def get_heatmap():
             points.append([lat_, lng_, sev, det])
 
     return JSONResponse(content={"points": points})
+
+
+@app.post("/api/v1/cleanup", status_code=200)
+async def manual_cleanup(force_all: bool = False):
+    """Manually trigger deletion of reports older than 30 days, or ALL reports if force_all=true."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+    deleted = cleanup_old_reports(force_all=force_all)
+    return {"success": True, "deleted": deleted, "ttl_days": "ALL" if force_all else REPORT_TTL_DAYS}

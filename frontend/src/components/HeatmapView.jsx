@@ -4,7 +4,10 @@ import Footer from './Footer'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.heat'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, LocateFixed } from 'lucide-react'
+
+// Only these two categories exist in the backend
+const VALID_CATEGORIES = ['Pothole', 'Garbage']
 
 function HeatLayer({ points }) {
   const map = useMap()
@@ -23,8 +26,16 @@ function HeatLayer({ points }) {
       gradient: { 0.2: '#10b981', 0.5: '#f59e0b', 0.8: '#ef4444', 1.0: '#7f1d1d' },
     }).addTo(map)
 
-    const bounds = L.latLngBounds(data.map(([lat, lng]) => [lat, lng]))
-    map.fitBounds(bounds, { padding: [40, 40] })
+    // Guard: fitBounds crashes on a single point — use setView as safe fallback
+    const latlngs = data.map(([lat, lng]) => [lat, lng])
+    if (latlngs.length === 1) {
+      map.setView(latlngs[0], 15)
+    } else {
+      const bounds = L.latLngBounds(latlngs)
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [40, 40] })
+      }
+    }
 
     return () => {
       map.removeLayer(layer)
@@ -32,6 +43,43 @@ function HeatLayer({ points }) {
   }, [map, points])
 
   return null
+}
+
+// Pans the map to the user's current GPS location
+function LocateUser() {
+  const map = useMap()
+  const [located, setLocated] = useState(false)
+
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        map.setView([latitude, longitude], 14)
+        setLocated(true)
+      },
+      () => { /* silently fall back to default center */ },
+      { timeout: 7000 }
+    )
+  }, [map])
+
+  const handleRelocate = () => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
+      () => {},
+      { timeout: 7000 }
+    )
+  }
+
+  return (
+    <button
+      onClick={handleRelocate}
+      title="Go to my location"
+      className="absolute top-3 right-3 z-[400] w-8 h-8 rounded-full bg-white/90 backdrop-blur-md shadow-sm border border-slate-100 flex items-center justify-center hover:bg-white transition-colors"
+    >
+      <LocateFixed className={`w-4 h-4 ${located ? 'text-emerald-700' : 'text-slate-500'}`} />
+    </button>
+  )
 }
 
 export default function HeatmapView({ apiBase, onBack }) {
@@ -45,10 +93,11 @@ export default function HeatmapView({ apiBase, onBack }) {
       .catch((e) => console.error('Heatmap fetch error:', e))
   }, [apiBase])
 
+  // Build stats from only the two valid categories
   const stats = { All: points.length }
-  points.forEach(p => {
-    const cat = p[3] || 'Unknown'
-    stats[cat] = (stats[cat] || 0) + 1
+  VALID_CATEGORIES.forEach(cat => {
+    const count = points.filter(p => p[3] === cat).length
+    if (count > 0) stats[cat] = count
   })
 
   const filteredPoints = activeFilter === 'All'
@@ -93,6 +142,7 @@ export default function HeatmapView({ apiBase, onBack }) {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
           />
           {filteredPoints.length > 0 && <HeatLayer points={filteredPoints} />}
+          <LocateUser />
         </MapContainer>
         
         {/* Floating Filter Capsules on Map */}
@@ -112,18 +162,35 @@ export default function HeatmapView({ apiBase, onBack }) {
         </div>
       </div>
 
-      {/* Incident Cluster Detail Card */}
+      {/* Live Report Summary Card */}
       <div className="bg-white rounded-[24px] p-4 shadow-soft border border-slate-100/70 mb-2 slide-up delay-2">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-            <span className="text-xs font-bold text-slate-900">Islamabad Zone 1 Hotspot</span>
+        {points.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                <span className="text-xs font-bold text-slate-900">Live Report Summary</span>
+              </div>
+              <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
+                {points.length} Total Report{points.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {Object.entries(stats)
+                .filter(([cat]) => cat !== 'All')
+                .map(([cat, count]) => (
+                  <span key={cat} className="text-[10px] font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                    {cat}: {count}
+                  </span>
+                ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-2 text-center">
+            <span className="text-slate-400 text-xs">No reports submitted yet.</span>
+            <span className="text-slate-300 text-[10px] mt-0.5">Reports will appear on the map once submitted.</span>
           </div>
-          <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">Updated {points.length ? 'Just now' : '4m ago'}</span>
-        </div>
-        <p className="text-xs text-slate-500 leading-relaxed">
-          Highest cluster reported in Sectors F-7 and G-8. Priority repair crews have been deployed to Street 14 and Faisal Ave.
-        </p>
+        )}
       </div>
       
       <div className="mt-4">

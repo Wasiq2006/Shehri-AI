@@ -1,0 +1,36 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+.eggs/
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+shehri_env/
+
+# --- Dev/test files ---
+tests/
+*.log
+*.sqlite3
+.env*
+
+# --- Git ---
+.git/
+.gitignore
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Models are downloaded at build time, do not copy local ones ---
+models/

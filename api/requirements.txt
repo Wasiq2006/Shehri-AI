@@ -4,3 +4,6 @@ ultralytics
 opencv-python-headless
 firebase-admin
 pillow
+pydantic
+python-multipart
+slowapi

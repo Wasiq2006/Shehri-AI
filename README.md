@@ -1,103 +1,93 @@
-<div align="center">
-  <img src="ShehriAILogo.jpg" alt="ShehriAI Logo" width="220" style="border-radius: 20px; margin-bottom: 20px;" />
-</div>
+<p align="center">
+  <img src="frontend/public/ShehriAILogo.png" width="200" alt="Shehri AI Logo" />
+</p>
 
-# ShehriAI — Smart Civic Monitoring
+# Shehri AI
 
-ShehriAI is an AI-powered civic infrastructure monitoring platform designed to instantly detect, report, and map urban issues like potholes and uncollected garbage. By combining edge-AI object detection with live mapping, ShehriAI empowers citizens to help local authorities (like the CDA) maintain safer and cleaner streets.
+Shehri AI is an intelligent civic infrastructure reporting application designed to streamline the identification and reporting of municipal issues such as potholes and garbage accumulation. The platform leverages edge device inputs, computer vision (YOLOv8), and geospatial data mapping to deliver actionable insights directly to city administration (e.g., CDA).
 
-## 🌟 Features
+## System Architecture
 
-- **Dual-Model AI Detection:** The backend runs *two* YOLOv8 models simultaneously. Upload a photo, and it will scan for both Infrastructure Damage (Potholes) and Waste (12 categories of Garbage), dynamically highlighting the primary issue with a color-coded bounding box.
-- **Smart Geocoding:** Automatically extracts exact GPS coordinates from the photo's EXIF data. If none exists, it gracefully falls back to the user's current device location.
-- **Reverse Geocoding:** Converts raw latitude and longitude coordinates into human-readable street addresses using the OpenStreetMap Nominatim API.
-- **Live Interactive Heatmap:** A real-time heatmap (powered by Leaflet) mapping all reported issues across the city, strictly bounded to the Islamabad Capital Territory.
-- **Premium UI/UX:** Built with React and TailwindCSS, featuring smooth glassmorphism, responsive bento grids, micro-animations, and a highly polished bottom navigation dock.
+The project follows a decoupled, microservice-inspired architecture:
 
-## 🛠️ Tech Stack
+*   **Frontend (Client):** A responsive, mobile-first web application built with React, Vite, and Tailwind CSS. It handles image capture, device geolocation, and renders an interactive Leaflet heatmap of civic issues.
+*   **Backend (API):** A high-performance, asynchronous REST API built on FastAPI (Python). It manages file uploads, executes computer vision inference, handles metadata extraction (EXIF), and enforces security policies (rate limiting, payload size validation).
+*   **Database (Storage):** Google Firebase Firestore (NoSQL) is used for persistent storage of report metadata, severity scores, and geospatial coordinates.
+*   **AI Models:** Ultralytics YOLOv8 models are utilized for real-time object detection.
 
-### Frontend
-- **Framework:** React + Vite
-- **Styling:** TailwindCSS (with custom animations and glassmorphism)
-- **Maps:** Leaflet & React-Leaflet (`leaflet.heat` with CartoDB/OSM tiles)
-- **Icons:** Lucide React
+## Core Features
 
-### Backend
-- **Framework:** FastAPI (Python)
-- **AI/ML:** Ultralytics YOLOv8 (PyTorch)
-- **Database:** Firebase Firestore
-- **Image Processing:** OpenCV (`cv2`), Pillow, `exifread`
+*   **Dual-Model Computer Vision:** Dedicated YOLOv8 inference paths for infrastructure damage (potholes) and sanitation issues (garbage), complete with severity scoring based on model confidence.
+*   **Intelligent Geolocation:** Extracts embedded EXIF GPS data from uploaded photographs. If EXIF data is missing, the system falls back to the HTML5 Geolocation API provided by the client device.
+*   **Live Geospatial Heatmap:** Aggregates and plots submitted reports on an interactive city map.
+*   **Automated Administrative Routing:** Generates pre-formatted reporting templates for direct dispatch to relevant civic authorities.
+*   **Security & Optimization:** Integrates `slowapi` for endpoint rate-limiting (preventing DDoS and abuse), strict MIME type validation, 10MB payload restrictions, and automated 30-day database retention cleanup.
 
----
+## Local Development Setup
 
-## 🚀 Getting Started (Local Development)
+Ensure you have Node.js (v18+) and Python (3.10+) installed on your local machine.
 
-### Prerequisites
-- Node.js (v18+)
-- Python 3.9+
-- YOLOv8 model weights for both Potholes and Garbage.
+### 1. Backend Installation
 
-### 1. Backend Setup
+Navigate to the `api` directory and create a virtual environment:
 
-1. Navigate to the project root.
-2. Activate your virtual environment:
-   ```bash
-   source shehri_env/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Place your Firebase credentials at `backend/config/firebase_credentials.json`.
-5. Place your YOLOv8 model weights at `backend/models/pothole_best.pt` and `backend/models/garbage_best.pt`.
-6. Start the FastAPI server:
-   ```bash
-   cd backend
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
+```bash
+cd api
+python -m venv shehri_env
+source shehri_env/bin/activate  # On Windows: shehri_env\Scripts\activate
+```
 
-### 2. Frontend Setup
+Install the required Python dependencies:
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. *(Optional)* Configure the API URL in `.env`:
-   ```env
-   VITE_API_URL=http://localhost:8000
-   ```
-4. Start the Vite development server:
-   ```bash
-   npm run dev
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-### 3. Usage
-- Open `http://localhost:5173` in your browser.
-- Use the **Scanner** tab to upload an image of a pothole or garbage.
-- Review the generated AI **Report** and forward it to local authorities (`cdacares@cda.gov.pk`).
-- View the **Heatmap** to see the newly generated report live on the city grid.
+**Firebase Configuration:**
+Place your Firebase Admin SDK JSON credential file in the `api/config/` directory. The backend will automatically detect and load it for database operations.
 
----
+Start the FastAPI development server:
 
-## 🌍 Deployment (Vercel & Monorepo)
+```bash
+uvicorn main:app --host 0.0.0.0 --port 10000 --reload
+```
 
-ShehriAI is configured out-of-the-box for a split deployment architecture to handle the heavy machine-learning backend while keeping the frontend lightning fast on the edge.
+### 2. Frontend Installation
 
-1. **Backend (Render / Railway / Fly.io)**: 
-   Because the dual YOLOv8 PyTorch models exceed Vercel's serverless function limits (250MB size & memory constraints), deploy the `backend/` directory as a standard web service on a provider like Render.
-2. **Frontend (Vercel)**:
-   - Push this entire repository to GitHub.
-   - Import the repository into Vercel.
-   - Vercel will automatically read the `vercel.json` file in the root directory.
-   - It will build the `frontend` folder (`@vercel/static-build`) and route all API calls (e.g. `/api/*`) directly to your external backend.
-   - **Crucial Step:** Open `vercel.json` and change the `"dest"` URL for the API route to point to your live backend domain (e.g., `https://your-backend.onrender.com/api/$1`).
+Navigate to the `frontend` directory and install the Node modules:
 
----
+```bash
+cd frontend
+npm install
+```
 
-## 📝 License & Author
+Start the Vite development server:
 
-Made with ❤️ by [Wasiq](https://wasiq.tech).
+```bash
+npm run dev
+```
+
+The frontend will be accessible at `http://localhost:5173`. By default, the Vite proxy is configured to route `/api/*` traffic to the local backend on port 10000.
+
+## Production Deployment
+
+The application is configured for split deployment across Vercel and Render.
+
+### Backend Deployment (Render)
+
+1. Connect your repository to a new Render Docker Web Service.
+2. Set the root directory to `api`.
+3. Add the `FIREBASE_CREDENTIALS_JSON` environment variable in the Render dashboard, pasting the full raw JSON string of your Firebase service account key.
+4. The provided `Dockerfile` will automatically resolve dependencies, download the YOLO model weights from HuggingFace, and expose the required port.
+
+### Frontend Deployment (Vercel)
+
+1. Connect your repository to Vercel.
+2. Set the root directory to `frontend`.
+3. Set the Framework Preset to Vite.
+4. Modify `frontend/.env.production` and `vercel.json` to replace the placeholder API URL with your newly generated Render backend URL.
+5. Deploy the application.
+
+## Licensing
+
+This project is proprietary and intended for municipal infrastructure reporting. All rights reserved.

@@ -4,7 +4,9 @@ import ResultsView from './components/ResultsView'
 import HeatmapView from './components/HeatmapView'
 import NavigationDock from './components/NavigationDock'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// In dev: VITE_API_URL is empty → Vite proxy forwards /api/* to localhost:10000
+// In prod: set VITE_API_URL in Vercel's Environment Variables dashboard
+const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export default function App() {
   // 'hero' | 'results' | 'heatmap'

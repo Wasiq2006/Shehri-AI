@@ -199,12 +199,15 @@ export default function ResultsView({ data, onReset }) {
       {/* Action Confirmation Pill */}
       <div className="mt-auto space-y-2.5 slide-up delay-3">
         <a 
-          href={`mailto:cdacares@cda.gov.pk?subject=ShehriAI Report: ${data.detection}&body=Report ID: ${data.report_id}%0ASeverity: ${score}/10${note ? `%0AUser Note: ${encodeURIComponent(note)}` : ''}`}
+          href={`mailto:cdacares@cda.gov.pk?subject=Civic Issue Report via Shehri AI: ${data.detection}&body=Dear CDA,%0D%0A%0D%0AI would like to report a civic infrastructure issue detected by Shehri AI.%0D%0A%0D%0A--- REPORT DETAILS ---%0D%0AIssue Type: ${data.detection}%0D%0ASeverity Risk Score: ${score.toFixed(1)}/10%0D%0AAI Confidence: ${Math.round((data.confidence ?? 0) * 100)}%25%0D%0ALocation (GPS): ${data.lat}, ${data.lng}%0D%0AAddress: ${uploadAddress}%0D%0AReport ID: ${data.report_id}%0D%0A%0D%0A${note ? `User Note: ${encodeURIComponent(note)}%0D%0A%0D%0A` : ''}Please see the attached photograph for visual confirmation of the issue.%0D%0A%0D%0ARegards,%0D%0AA Concerned Citizen`}
           className="w-full py-4 px-6 rounded-full hover:bg-emerald-900 active:scale-[0.98] text-white font-medium text-sm shadow-pill transition-all duration-200 flex items-center justify-center space-x-2 bg-slate-900"
         >
           <Check className="w-4 h-4" />
           <span className="font-semibold">Forward Report to CDA</span>
         </a>
+        <p className="text-[10px] text-center text-slate-400 font-medium px-2">
+          Note: Your email app will open automatically. <strong className="text-slate-500">Please attach the photo manually</strong> before sending.
+        </p>
         <button 
           onClick={onReset}
           className="w-full py-3 px-6 rounded-full bg-white hover:bg-stone-50 active:scale-[0.98] text-slate-700 font-medium text-xs border border-slate-200/80 transition-all text-center"

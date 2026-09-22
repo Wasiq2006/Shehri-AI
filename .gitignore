@@ -3,6 +3,7 @@
 # ---------------------------------------------------------------------------
 *credentials.json
 firebase_credentials.json
+api/config/*.json
 *.env
 .env*
 secrets/
