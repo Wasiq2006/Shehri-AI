@@ -63,22 +63,25 @@ except Exception as exc:
     logger.critical("Failed to initialize Firebase Admin: %s", exc)
     db = None
 
-# ---------------------------------------------------------------------------
-# YOLO Models Initialization
-# ---------------------------------------------------------------------------
-try:
-    pothole_model = YOLO(POTHOLE_MODEL_PATH)
-    logger.info("Pothole YOLO model loaded from: %s", POTHOLE_MODEL_PATH)
-except Exception as exc:
-    logger.critical("Failed to load Pothole YOLO model: %s", exc)
-    pothole_model = None
+import torch
 
-try:
-    garbage_model = YOLO(GARBAGE_MODEL_PATH)
-    logger.info("Garbage YOLO model loaded from: %s", GARBAGE_MODEL_PATH)
-except Exception as exc:
-    logger.critical("Failed to load Garbage YOLO model: %s", exc)
-    garbage_model = None
+# ---------------------------------------------------------------------------
+# YOLO Models Initialization (Lazy Loaded to save memory)
+# ---------------------------------------------------------------------------
+torch.set_num_threads(1)
+
+def run_pothole_inference(img):
+    model = YOLO(POTHOLE_MODEL_PATH)
+    results = model(img, verbose=False)
+    del model
+    return results
+
+def run_garbage_inference(img):
+    model = YOLO(GARBAGE_MODEL_PATH)
+    results = model(img, verbose=False)
+    del model
+    return results
+
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +289,7 @@ async def submit_report(
     lng:     float     = Form(...),
     file:    UploadFile = File(...),
 ):
-    if pothole_model is None or garbage_model is None or db is None:
+    if db is None:
         raise HTTPException(status_code=500, detail="Server not fully initialized.")
 
     # Security: File Type Check
@@ -347,13 +350,13 @@ async def submit_report(
     if pothole_conf >= garbage_conf:
         winning_box = best_pothole_box
         confidence = pothole_conf
-        raw_name = pothole_model.names[int(winning_box.cls)]
+        raw_name = pothole_results[0].names[int(winning_box.cls)]
         detection_class = "Pothole" if raw_name == "0" else raw_name.title()
         color = (0, 0, 255) # Red for Potholes
     else:
         winning_box = best_garbage_box
         confidence = garbage_conf
-        raw_name = garbage_model.names[int(winning_box.cls)].title()
+        raw_name = garbage_results[0].names[int(winning_box.cls)].title()
         detection_class = "Garbage"
         color = (0, 200, 0) # Green for Garbage/Waste
 
